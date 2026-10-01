@@ -1,0 +1,13 @@
+# Netlify: сайт собирается из исходников (npm run build) и публикуется папка dist.
+# Сетевая игра на Netlify идёт напрямую между браузерами (P2P), свой сервер не нужен.
+[build]
+  command = "npm run build"
+  publish = "dist"
+
+[build.environment]
+  NODE_VERSION = "20"
+
+[[headers]]
+  for = "/*"
+  [headers.values]
+    Permissions-Policy = "camera=(self), microphone=(self)"
