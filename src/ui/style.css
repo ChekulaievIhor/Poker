@@ -280,14 +280,24 @@ video.self { transform: scaleX(-1); }
 /* ---------- панель действий ---------- */
 .actions {
   grid-area: actions;
-  display: flex; align-items: center; gap: 10px; flex-wrap: wrap; justify-content: center;
-  padding-block: 12px 16px; min-height: 86px;
+  display: flex; flex-direction: column; align-items: center; gap: 6px;
+  padding-block: 8px 14px;
   border-top: 1px solid var(--line);
 }
-.actions .wait { color: var(--muted); }
+/* Строка статуса фиксированной высоты: текст меняется, высота — нет */
+.act-status {
+  height: 1.5em; line-height: 1.5em; font-size: 13px; color: var(--muted);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; text-align: center;
+}
+.act-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; justify-content: center; }
+.btn:disabled, .presets button:disabled, .act-row input:disabled { opacity: 0.38; cursor: default; filter: saturate(0.4); }
+.btn:disabled:hover { background: var(--panel-2); }
+.btn.primary:disabled:hover { background: var(--brass); }
+.btn .lbl { white-space: nowrap; }
+
 .btn {
   border: none; border-radius: 8px; padding: 12px 20px; font-weight: 600; font-size: 15px;
-  min-width: 110px; background: var(--panel-2); border: 1px solid var(--line);
+  min-width: 120px; background: var(--panel-2); border: 1px solid var(--line);
   display: inline-flex; flex-direction: column; align-items: center; line-height: 1.15;
 }
 .btn small { font-family: var(--f-num); font-weight: 400; font-size: 12px; opacity: 0.8; }
@@ -471,6 +481,7 @@ button:disabled { opacity: 0.5; cursor: default; }
   .presets button { flex: 1; }
   .raise-box input[type=number] { width: 100%; }
   .raise-box .btn { min-width: 120px; }
+  .act-row { width: 100%; }
   .brand { font-size: 16px; }
   .topbar { gap: 8px; }
   .topbar .ghost { padding: 5px 7px; }

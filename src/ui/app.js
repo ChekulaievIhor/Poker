@@ -658,70 +658,100 @@ function heroHandName(hole, board) {
 }
 
 // ================= панель действий =================
+// Панель действий всегда одинаковая по составу и размеру: когда ход не ваш, кнопки просто неактивны,
+// поэтому вёрстка стола не прыгает. Над кнопками — строка статуса фиксированной высоты.
+function myLegal() {
+  const st = lastSnap;
+  if (!table || !st || pumping || !st.legal) return null;
+  const p = st.seats[st.legal.seat];
+  return p && p.id === myId() ? st.legal : null;
+}
+
 function renderActions() {
   const box = $('actions');
   box.innerHTML = '';
   const st = lastSnap;
-  if (!table || !st) { box.appendChild(el('span', 'wait', esc(t('table.pressStart')))); return; }
-  const legal = !pumping && st.legal && st.seats[st.legal.seat] && st.seats[st.legal.seat].id === myId() ? st.legal : null;
-  if (!legal) {
-    let note = '';
+  const legal = myLegal();
+
+  // ----- строка статуса -----
+  let note = '';
+  if (!table || !st) note = t('table.pressStart');
+  else if (!legal) {
     if (st.phase !== PHASE.WAITING && st.phase !== PHASE.COMPLETE && st.toAct >= 0 && st.seats[st.toAct]) note = t('table.waitFor', { name: st.seats[st.toAct].name });
-    else if (table.mode === 'online' && st.seats.filter((s) => s && s.chips > 0 && !s.sittingOut).length < 2) {
-      note = t('table.waitingPlayers', { id: table.tableId });
-    } else if (st.handNumber > 0) note = t('table.nextHand');
-    box.appendChild(el('span', 'wait', esc(note)));
-    return;
+    else if (table.mode === 'online' && st.seats.filter((x) => x && x.chips > 0 && !x.sittingOut).length < 2) note = t('table.waitingPlayers', { id: table.tableId });
+    else if (st.handNumber > 0) note = t('table.nextHand');
   }
-  const btn = (cls, label, sub, key, fn) => {
-    const b = el('button', 'btn ' + cls, `${esc(label)}${sub ? `<small>${sub}</small>` : ''}${key ? `<kbd>${key}</kbd>` : ''}`);
+  const status = el('div', 'act-status' + (legal ? ' mine' : ''), note ? esc(note) : '&nbsp;');
+  box.appendChild(status);
+
+  const row = el('div', 'act-row' + (legal ? '' : ' idle'));
+  box.appendChild(row);
+  const btn = (cls, label, sub, key, fn, enabled) => {
+    const b = el('button', 'btn ' + cls, `<span class="lbl">${esc(label)}</span><small>${sub || '&nbsp;'}</small>${key ? `<kbd>${key}</kbd>` : ''}`);
+    b.type = 'button';
+    b.disabled = !enabled;
     b.addEventListener('click', fn);
     return b;
   };
-  const clockEl = el('div', 'hero-clock', '0:30');
+
+  // Что показать, когда ход не мой: прикидка по текущему состоянию стола
+  const meSeat = st ? st.seats.findIndex((x) => x && x.id === myId()) : -1;
+  const me = meSeat >= 0 ? st.seats[meSeat] : null;
+  const bb = st ? st.config.bigBlind : 20;
+  const step = st ? st.config.smallBlind : 10;
+  const view = legal || (() => {
+    const myBet = me ? me.bet : 0;
+    const cur = st ? st.currentBet || 0 : 0;
+    const chips = me ? me.chips : 0;
+    const toCall = Math.max(0, Math.min(cur - myBet, chips));
+    const minTo = Math.min(cur ? cur + bb : bb, myBet + chips) || bb;
+    return { canCheck: toCall === 0, callAmount: toCall, canRaise: false, isBet: cur === 0,
+      minRaiseTo: minTo, maxRaiseTo: Math.max(minTo, myBet + chips), currentBet: cur, pot: st ? st.pot : 0 };
+  })();
+  const myChips = me ? me.chips : 0;
+
+  const clockEl = el('div', 'hero-clock', '—');
   clockEl.id = 'hero-clock';
   clockEl.title = t('table.timeLeft');
-  box.appendChild(clockEl);
-  const myChips = st.seats[legal.seat].chips;
-  box.appendChild(btn('fold', t('act.fold'), '', 'F', () => heroAct({ type: 'fold' })));
-  if (legal.canCheck) box.appendChild(btn('', t('act.check'), '', 'C', () => heroAct({ type: 'check' })));
-  else box.appendChild(btn('', legal.callAmount >= myChips ? t('act.callAllIn') : t('act.call'), fmt(legal.callAmount), 'C', () => heroAct({ type: 'call' })));
+  row.appendChild(clockEl);
+  row.appendChild(btn('fold', t('act.fold'), '', 'F', () => heroAct({ type: 'fold' }), !!legal));
+  if (view.canCheck) row.appendChild(btn('', t('act.check'), '', 'C', () => heroAct({ type: 'check' }), !!legal));
+  else row.appendChild(btn('', view.callAmount >= myChips && myChips > 0 ? t('act.callAllIn') : t('act.call'), fmt(view.callAmount), 'C', () => heroAct({ type: 'call' }), !!legal));
 
-  if (legal.canRaise) {
-    const rb = el('div', 'raise-box');
-    const step = st.config.smallBlind;
-    const range = el('input'); range.type = 'range'; range.id = 'raise-range';
-    range.min = legal.minRaiseTo; range.max = legal.maxRaiseTo; range.step = step;
-    range.setAttribute('aria-label', t('act.betSize'));
-    const num = el('input'); num.type = 'number'; num.id = 'raise-num';
-    num.min = legal.minRaiseTo; num.max = legal.maxRaiseTo; num.step = step;
-    num.setAttribute('aria-label', t('act.amount'));
-    const main = btn('primary', legal.isBet ? t('act.bet') : t('act.raiseTo'), fmt(legal.minRaiseTo), 'R', () => doRaise());
-    const set = (v) => {
-      v = Math.max(legal.minRaiseTo, Math.min(legal.maxRaiseTo, Math.round(v)));
-      range.value = v; num.value = v;
-      main.querySelector('small').textContent = v === legal.maxRaiseTo ? `${fmt(v)} · ${t('act.allin')}` : fmt(v);
-    };
-    const toCall = legal.callAmount;
-    const potTo = (f) => (legal.isBet ? legal.pot * f : legal.currentBet + (legal.pot + toCall) * f);
-    const bb = st.config.bigBlind;
-    const options = legal.isBet || st.phase !== PHASE.PREFLOP
-      ? [[t('act.halfPot'), potTo(0.5)], ['¾', potTo(0.75)], [t('act.pot'), potTo(1)], [t('act.allin'), legal.maxRaiseTo]]
-      : [['2.5 BB', bb * 2.5], ['3 BB', legal.currentBet * 3], [t('act.pot'), potTo(1)], [t('act.allin'), legal.maxRaiseTo]];
-    const presets = el('div', 'presets');
-    for (const [label, v] of options) {
-      const b = el('button', '', esc(label)); b.type = 'button';
-      b.addEventListener('click', () => set(v));
-      presets.appendChild(b);
-    }
-    range.addEventListener('input', () => set(+range.value));
-    num.addEventListener('change', () => set(+num.value));
-    num.addEventListener('keydown', (e) => { if (e.key === 'Enter') doRaise(); });
-    const doRaise = () => heroAct({ type: 'raise', amount: +num.value });
-    set(legal.minRaiseTo);
-    rb.append(presets, range, num, main);
-    box.appendChild(rb);
+  // Блок ставки — всегда на месте, неактивен, если рейз сейчас невозможен
+  const canRaise = !!(legal && legal.canRaise);
+  const rb = el('div', 'raise-box' + (canRaise ? '' : ' off'));
+  const range = el('input'); range.type = 'range'; range.id = 'raise-range';
+  range.min = view.minRaiseTo; range.max = view.maxRaiseTo; range.step = step; range.disabled = !canRaise;
+  range.setAttribute('aria-label', t('act.betSize'));
+  const num = el('input'); num.type = 'number'; num.id = 'raise-num';
+  num.min = view.minRaiseTo; num.max = view.maxRaiseTo; num.step = step; num.disabled = !canRaise;
+  num.setAttribute('aria-label', t('act.amount'));
+  const main = btn('primary', view.isBet ? t('act.bet') : t('act.raiseTo'), fmt(view.minRaiseTo), 'R', () => doRaise(), canRaise);
+  const set = (v) => {
+    v = Math.max(view.minRaiseTo, Math.min(view.maxRaiseTo, Math.round(v)));
+    range.value = v; num.value = v;
+    main.querySelector('small').textContent = canRaise && v === view.maxRaiseTo ? `${fmt(v)} · ${t('act.allin')}` : fmt(v);
+  };
+  const toCall = view.callAmount;
+  const potTo = (f) => (view.isBet ? view.pot * f : view.currentBet + (view.pot + toCall) * f);
+  const preflop = st && st.phase === PHASE.PREFLOP && !view.isBet;
+  const options = preflop
+    ? [['2.5 BB', bb * 2.5], ['3 BB', view.currentBet * 3], [t('act.pot'), potTo(1)], [t('act.allin'), view.maxRaiseTo]]
+    : [[t('act.halfPot'), potTo(0.5)], ['¾', potTo(0.75)], [t('act.pot'), potTo(1)], [t('act.allin'), view.maxRaiseTo]];
+  const presets = el('div', 'presets');
+  for (const [label, v] of options) {
+    const b = el('button', '', esc(label)); b.type = 'button'; b.disabled = !canRaise;
+    b.addEventListener('click', () => set(v));
+    presets.appendChild(b);
   }
+  range.addEventListener('input', () => set(+range.value));
+  num.addEventListener('change', () => set(+num.value));
+  num.addEventListener('keydown', (e) => { if (e.key === 'Enter') doRaise(); });
+  const doRaise = () => heroAct({ type: 'raise', amount: +num.value });
+  set(view.minRaiseTo);
+  rb.append(presets, range, num, main);
+  row.appendChild(rb);
   updateClockText();
 }
 
@@ -732,7 +762,9 @@ function errText(e) {
 
 function heroAct(action) {
   if (!table) return;
-  $('actions').innerHTML = '';
+  // Не убираем панель, а только блокируем — чтобы вёрстка не менялась
+  $('actions').querySelectorAll('button, input').forEach((n) => { n.disabled = true; });
+  $('actions').querySelector('.act-row')?.classList.add('idle');
   try { table.act(action); }
   catch (e) { toast(errText(e)); renderActions(); }
 }
@@ -740,8 +772,8 @@ function heroAct(action) {
 document.addEventListener('keydown', (e) => {
   if (!table || !$('overlay').hidden || pumping) return;
   if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return;
-  const legal = lastSnap && lastSnap.legal;
-  if (!legal || !$('hero-clock')) return;
+  const legal = myLegal();
+  if (!legal) return;
   const k = e.key.toLowerCase();
   if (k === 'f') heroAct({ type: 'fold' });
   else if (k === 'c') heroAct({ type: legal.canCheck ? 'check' : 'call' });
